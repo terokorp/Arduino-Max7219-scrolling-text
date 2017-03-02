@@ -39,7 +39,7 @@ int count = 0;    // Remaining pixels count on scroll
 void setup() {
   for (int x = 0; x < numDevices * 4; x++) {
     lc.shutdown(x, false);      // The MAX72XX is in power-saving mode on startup
-    lc.setIntensity(x, 0);      // Set the brightness to default value
+    lc.setIntensity(x, 0);      // Set the brightness to default value 0-15
     lc.clearDisplay(x);         // and clear the display
   }
 
