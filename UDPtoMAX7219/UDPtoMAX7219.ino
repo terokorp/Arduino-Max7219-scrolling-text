@@ -31,8 +31,9 @@ EthernetClient client;
 
 EthernetUDP Udp;
 char buf[UDP_TX_PACKET_MAX_SIZE + 2] = {0};
-
 unsigned long displaybuffer [(numDevices + 2) * 8] = {0}; // Display pixel data
+unsigned char ch[4] = {0};  // Current UTF-8 char
+
 int location = 0; // Location on message
 int count = 0;    // Remaining pixels count on scroll
 
@@ -59,7 +60,7 @@ void setup() {
 
 
 void loop() {
-  if (location == 0 && count == 0) {
+  if (location <= 0 && count <= 0) {
     int packetSize = Udp.parsePacket();
     if (packetSize) {
       Udp.read(buf, UDP_TX_PACKET_MAX_SIZE);
@@ -73,71 +74,129 @@ void loop() {
     }
   }
 
-  //lc.setIntensity(1, 15);
-
   scrollMessageMem(buf);
 
   delay(scrollDelay);
 }
 
 void scrollMessageMem(unsigned char * messageString) {
-  int c = 0;
   //Great tool: www.utf8-chartable.de/
 
   if (count <= 0) {  // Load next char if no more pixels left
-    c = messageString[location];
-    if (c == 0) {
-      location = 0;
-      count = 1;
-    }
-    else if (c >= 0x01 && c <= 0x7f) {  //U+0000 to U+007F are 1 byte
-      loadChar(c, 0x00, 0x00);
-      location = location + 1;
-    }
-    else if (c >= 0xC2 && c <= 0xDF) {  // U+0080 to U+07FF are 2 bytes
-      loadChar(c, messageString[location + 1], 0x00);
-      location = location + 2;
-    }
-    else if (c >= 0xE0 && c <= 0xEF) { // U+0800 to U+FFFF are 3 bytes
-      loadChar(c, messageString[location + 1], messageString[location + 2]);
-      location = location + 3;
-    }
-    else if (c >= 0xF0) { // U+010000 to U+10FFFF are 4 bytes
-      location = location + 4;
-      return;
-    } else {
-      Serial.print("Oh no! ");
-      Serial.println(c, HEX);
-      location++;
-    }
+    parsechar(messageString + location, ch);
+    loadChar(ch);
   }
 
   for (int x = numDevices; x >= 0; x--) {
-    printBufferLong(x);
+    UpdateDisplayLong(x);
   }
 
   scroll();
   count--;
 }
 
-
-void loadChar(int b1, int b2, int b3) {
+char parsechar(unsigned char * messageString, unsigned char * ch) {
   //codes 0x01-0x7f are identical in ASCII and UTF8
   //codes 0xA0-0xBF in ISO-8859-1 and Windows-1252 are two-byte characters in UTF-8 -- 0xC2 as a first byte, the second byte is identical to the extended ASCII-code.
   //codes 0xC0-0xFF in ISO-8859-1 and Windows-1252 are two-byte characters in UTF-8 -- 0xC3 as a first byte, the second byte differs only in the first two bits.
   //codes 0x80-0x9F in Windows-1252 are different, but usually only the €-symbol will be needed from this range. The euro symbol is 0x80 in Windows-1252, 0xa4 in ISO-8859-15, and 0xe2 0x82 0xac in UTF-8
 
-  count = -1;
-  if (b1 == 0x0A) count = 8; // 0x0A = newline;
-  if (b1 == 0xC2 && b2 == 0xB0) b1 = 0x7F;  // replacing 0xB0 (degree char) with 0x7F (degree char in font)
+  char len = 0; // Character lenght(bytes)
+  memcpy(ch, messageString, 4);
+  Serial.print("parsing: ");
+  printdebug(ch);
+  memset(ch, 0x00, 4); // Clear current char bytes
 
-  if (b1 >= 0x20 && b1 <= 0x7f) {
-    loadBuffer(font5x7, b1 - 0x20, 1);
+
+  unsigned char c = messageString[0];
+  if (c == 0) {
+    location = 0;
+    count = 0;
+    return;
   }
-  else if (b1 == 0xC2) {
+  else if (c >= 0x01 && c <= 0x7f) {  //U+0000 to U+007F are 1 byte
+    len = 1;
+    memcpy(ch, messageString, len);
   }
-  else if (b1 == 0xC3) {
-    switch (b2) {
+  else if (c >= 0xC2 && c <= 0xDF) {  // U+0080 to U+07FF are 2 bytes
+    len = 2;
+    memcpy(ch, messageString, len);
+    if (c == 0xC4) { // Ä
+      len = 1;
+      ch[0] = 0xc3;
+      ch[1] = 0x84;
+      ch[2] = 0x00;
+      ch[3] = 0x00;
+    }
+    if (c == 0xC5) { // Å
+      len = 1;
+      ch[0] = 0xc3;
+      ch[1] = 0x85;
+      ch[2] = 0x00;
+      ch[3] = 0x00;
+    }
+    if (c == 0xD6) { // Ö
+      len = 1;
+      ch[0] = 0xc3;
+      ch[1] = 0x96;
+      ch[2] = 0x00;
+      ch[3] = 0x00;
+    }
+  }
+  else if (c >= 0xE0 && c <= 0xEF) { // U+0800 to U+FFFF are 3 bytes
+    len = 3;
+    memcpy(ch, messageString, len);
+    if (c == 0xE5) { // å
+      len = 1;
+      ch[0] = 0xc3;
+      ch[1] = 0xa5;
+      ch[2] = 0x00;
+      ch[3] = 0x00;
+    }
+    if (c == 0xE4) { // ä
+      len = 1;
+      ch[0] = 0xc3;
+      ch[1] = 0xa4;
+      ch[2] = 0x00;
+      ch[3] = 0x00;
+    }
+  }
+  else if (c >= 0xF0) { // U+010000 to U+10FFFF are 4 bytes
+    len = 4;
+    memcpy(ch, messageString, len);
+    if (c == 0xF6) { // ö
+      len = 1;
+      ch[0] = 0xc3;
+      ch[1] = 0xb6;
+      ch[2] = 0x00;
+      ch[3] = 0x00;
+    }
+  } else {
+    Serial.print("Oh no! ");
+    Serial.println(c, HEX);
+    len = 1;
+  }
+  location = location + len;
+
+  Serial.print("parsed:  ");
+  printdebug(ch);
+  Serial.println("-----------");
+
+}
+
+void loadChar(unsigned char * ch) { // ch = UTF-8 character
+  count = -1;
+  if (!ch[0] && !ch[1] && !ch[2] && !ch[3]) count = 0; // End of string
+  if (ch[0] == 0x0A) count = 8; // 0x0A = newline;
+  if (ch[0] == 0xC2 && ch[1] == 0xB0) ch[0] = 0x7F;  // replacing 0xB0 (degree char) with 0x7F (degree char in font)
+
+  if (ch[0] >= 0x20 && ch[0] <= 0x7f) {
+    loadBuffer(font5x7, ch[0] - 0x20, 1);
+  }
+  else if (ch[0] == 0xC2) {
+  }
+  else if (ch[0] == 0xC3) {
+    switch (ch[1]) {
       case 0x84: //C3 84 == Ä
         loadBuffer(font5x7extra, 4, 0); // dots
         loadBuffer(font5x7, char('A') - 0x20, 1);
@@ -228,9 +287,9 @@ void loadChar(int b1, int b2, int b3) {
         break;
     }
   }
-  else if (b1 == 0xE2) {
-    if (b2 == 0x80)
-      switch (b3) {
+  else if (ch[0] == 0xE2) {
+    if (ch[1] == 0x80)
+      switch (ch[2]) {
         case 0x9C: // E2 80 9C == “
         case 0x9D: // E2 80 9D == ”
           loadBuffer(font5x7, char('"') - 0x20, 1);
@@ -242,7 +301,7 @@ void loadChar(int b1, int b2, int b3) {
           loadBuffer(font5x7extra, 6, 1);
           break;
       }
-    else if (b2 == 0x82 && b3 == 0xAC) { // E2 82 AC == €
+    else if (ch[1] == 0x82 && ch[2] == 0xAC) { // E2 82 AC == €
       loadBuffer(font5x7extra, 7, 1);
     }
   }
@@ -251,18 +310,7 @@ void loadChar(int b1, int b2, int b3) {
     loadBuffer(font5x7, char('_') - 0x20, 1);
 
     Serial.print("Unknow char: ");
-    Serial.print(b1, HEX);
-    Serial.print(" ");
-    Serial.print(b2, HEX);
-    Serial.print(" ");
-    Serial.print(b3, HEX);
-    Serial.print(" (");
-    Serial.print(char(b1));
-    if (b2 != 0x00)Serial.print(char(b2));
-    if (b3 != 0x00) Serial.print(char(b3));
-    Serial.print(")");
-
-    Serial.println("");
+    printdebug(ch);
   }
   if (count < 0) count = 0;
   if (count > 10) count = 10;
@@ -277,7 +325,7 @@ void loadBuffer(const unsigned char font [] PROGMEM , char c, char shift) {
   count = pgm_read_byte_near(font + (c * 8) + 7);    // Index into character table for kerning data
 }
 
-void printBufferLong(char section) {
+void UpdateDisplayLong(unsigned char section) {
   for (int a = 0; a < 8; a++) {
     unsigned long x = displaybuffer [8 * section + a];
 
@@ -299,3 +347,21 @@ void scroll(void) {
     }
   }
 }
+
+void printdebug(unsigned char * b) {
+  for (int x = 0; x <= 3; x++) {
+    char tmp[16];
+    sprintf(tmp, "%.2X", b[x]);
+    Serial.print(tmp);
+    Serial.print(" ");
+  }
+  Serial.print("(");
+  for (int x = 0; x <= 3; x++) {
+    if (b[x] != 0x00) Serial.print(char(b[x]));
+  }
+  Serial.print(")");
+  Serial.println("");
+}
+
+
+
