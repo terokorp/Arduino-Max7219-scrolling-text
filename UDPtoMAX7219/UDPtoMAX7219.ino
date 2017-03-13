@@ -1,3 +1,8 @@
+/**
+ * https://github.com/terokorp/Arduino-Max7219-scrolling-text 
+ * 
+ **/
+
 #include <stdint.h>
 #include <avr/pgmspace.h>
 
@@ -12,7 +17,7 @@
 
 #define SCLK       13   // SCLK, shared with ethernet shield
 #define MISO       12   // MISO 
-#define MOSI       11   // MOSI shared with ethernet shield
+#define MOSI       11   // MOSI, shared with ethernet shield
 #define SS_E       10   // for enthenet shield
 #define SS_D       9    // for display
 
@@ -50,6 +55,9 @@ void setup() {
   if (Ethernet.begin(mac) == 0) {
     Serial.println("Failed to configure Ethernet using DHCP");
   }
+  
+  Serial.print("Displays: ");
+  Serial.println(lc.getDeviceCount());
 
   // Show ip on startup
   uint32_t ipAddress = Ethernet.localIP();

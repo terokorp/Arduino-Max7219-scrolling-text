@@ -39,12 +39,12 @@
 LedControl::LedControl(int csPin, int numDevices) {
   SPI.begin();
   SPI_CS = csPin;
-  if (numDevices <= 0 || numDevices > 8 )
+  if (numDevices <= 0 || numDevices > 16 )
     numDevices = 8;
   maxDevices = numDevices;
   pinMode(SPI_CS, OUTPUT);
   digitalWrite(SPI_CS, HIGH);
-  for (int i = 0; i < 64; i++)
+  for (int i = 0; i < 128; i++)
     status[i] = 0x00;
   for (int i = 0; i < maxDevices; i++) {
     spiTransfer(i, OP_DISPLAYTEST, 0);
